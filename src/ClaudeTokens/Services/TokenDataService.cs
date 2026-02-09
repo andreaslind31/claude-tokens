@@ -99,11 +99,8 @@ public class TokenDataService
             summary.TotalMessages = stats.TotalMessages;
             summary.TotalSessions = stats.TotalSessions;
 
-            // Build per-model breakdown
+            // Build per-model breakdown and all-time cost
             decimal totalCost = 0;
-            decimal todayCost = 0;
-            var todayModelTokens = stats.DailyModelTokens.FirstOrDefault(d => d.Date == todayStr)
-                                   ?? stats.DailyModelTokens.LastOrDefault();
 
             foreach (var (modelId, usage) in stats.ModelUsage)
             {
@@ -122,19 +119,16 @@ public class TokenDataService
                 });
             }
 
-            // Estimate today's cost from today's output tokens and model distribution
-            if (todayModelTokens != null && todayActivity != null)
-            {
-                foreach (var (modelId, outputTokens) in todayModelTokens.TokensByModel)
-                {
-                    var pricing = GetPricing(modelId);
-                    // Output tokens is the main cost driver we have daily data for
-                    todayCost += outputTokens * pricing.output;
-                }
-            }
-
-            summary.TodayEstimatedCostUSD = todayCost;
             summary.TotalEstimatedCostUSD = totalCost;
+
+            // Estimate displayed day's cost by proportioning all-time cost
+            // by message count, since daily data only has output tokens
+            // and the real cost is dominated by cache tokens.
+            if (displayActivity != null && stats.TotalMessages > 0 && totalCost > 0)
+            {
+                var dayShare = (decimal)displayActivity.MessageCount / stats.TotalMessages;
+                summary.TodayEstimatedCostUSD = totalCost * dayShare;
+            }
 
             // Sort models by cost descending
             summary.Models.Sort((a, b) => b.EstimatedCostUSD.CompareTo(a.EstimatedCostUSD));
