@@ -9,15 +9,28 @@ public class MenuBarViewModel : IDisposable
 {
     private readonly TokenDataService _tokenService;
     private readonly FileWatcherService _watcherService;
+    private readonly ApiUsageService _apiService;
     private readonly Action _quitAction;
     private readonly NativeMenu _menu;
+    private readonly string? _apiKey;
+    private Timer? _apiPollTimer;
+    private UsageInfo? _lastUsage;
 
     public NativeMenu Menu => _menu;
+    public event Action<int>? PercentChanged;
 
-    public MenuBarViewModel(TokenDataService tokenService, FileWatcherService watcherService, Action quitAction)
+    public MenuBarViewModel(
+        TokenDataService tokenService,
+        FileWatcherService watcherService,
+        ApiUsageService apiService,
+        string? apiKey,
+        int pollIntervalSeconds,
+        Action quitAction)
     {
         _tokenService = tokenService;
         _watcherService = watcherService;
+        _apiService = apiService;
+        _apiKey = apiKey;
         _quitAction = quitAction;
         _menu = new NativeMenu();
 
@@ -25,6 +38,30 @@ public class MenuBarViewModel : IDisposable
         _watcherService.Start();
 
         Refresh();
+
+        // Start API polling if we have a key
+        if (!string.IsNullOrWhiteSpace(_apiKey))
+        {
+            var interval = TimeSpan.FromSeconds(Math.Max(pollIntervalSeconds, 10));
+            _apiPollTimer = new Timer(_ => _ = PollApiAsync(), null, TimeSpan.Zero, interval);
+        }
+    }
+
+    private async Task PollApiAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_apiKey)) return;
+
+        var usage = await _apiService.GetUsageAsync(_apiKey);
+        if (usage != null)
+        {
+            _lastUsage = usage;
+            var percent = (int)Math.Round(usage.RemainingPercent);
+            Dispatcher.UIThread.Post(() =>
+            {
+                PercentChanged?.Invoke(percent);
+                Refresh();
+            });
+        }
     }
 
     public void Refresh()
@@ -36,6 +73,26 @@ public class MenuBarViewModel : IDisposable
     private void RebuildMenu(TokenSummary summary)
     {
         _menu.Items.Clear();
+
+        // Rate limit section (if API data available)
+        if (_lastUsage != null)
+        {
+            var pct = (int)Math.Round(_lastUsage.RemainingPercent);
+            AddDisabledItem($"Remaining: {pct}%");
+            AddDisabledItem($"  {TokenDataService.FormatTokenCount(_lastUsage.TokensRemaining)} / {TokenDataService.FormatTokenCount(_lastUsage.TokensLimit)} tokens");
+            if (_lastUsage.TokensReset > DateTime.MinValue)
+            {
+                var resetIn = _lastUsage.TokensReset - DateTime.UtcNow;
+                if (resetIn.TotalSeconds > 0)
+                    AddDisabledItem($"  Resets in {FormatTimeSpan(resetIn)}");
+            }
+            AddSeparator();
+        }
+        else if (!string.IsNullOrWhiteSpace(_apiKey))
+        {
+            AddDisabledItem("Remaining: loading...");
+            AddSeparator();
+        }
 
         // Today header
         AddDisabledItem($"Today ({summary.DisplayDate})");
@@ -97,12 +154,26 @@ public class MenuBarViewModel : IDisposable
 
         // Actions
         var refreshItem = new NativeMenuItem("Refresh");
-        refreshItem.Click += (_, _) => Refresh();
+        refreshItem.Click += (_, _) =>
+        {
+            Refresh();
+            if (!string.IsNullOrWhiteSpace(_apiKey))
+                _ = PollApiAsync();
+        };
         _menu.Items.Add(refreshItem);
 
         var quitItem = new NativeMenuItem("Quit");
         quitItem.Click += (_, _) => _quitAction();
         _menu.Items.Add(quitItem);
+    }
+
+    private static string FormatTimeSpan(TimeSpan ts)
+    {
+        if (ts.TotalHours >= 1)
+            return $"{(int)ts.TotalHours}h {ts.Minutes}m";
+        if (ts.TotalMinutes >= 1)
+            return $"{(int)ts.TotalMinutes}m";
+        return $"{(int)ts.TotalSeconds}s";
     }
 
     private void AddDisabledItem(string header)
@@ -123,5 +194,7 @@ public class MenuBarViewModel : IDisposable
     public void Dispose()
     {
         _watcherService.Dispose();
+        _apiService.Dispose();
+        _apiPollTimer?.Dispose();
     }
 }
