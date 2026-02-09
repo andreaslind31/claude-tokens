@@ -91,16 +91,20 @@ src/ClaudeTokens/
     icon.png                    16x16 menu bar icon
 ```
 
-## Publishing
+## Install as App
 
-To build a self-contained binary:
+Run the publish script to create a clickable `Claude Tokens.app` bundle:
 
 ```bash
-dotnet publish src/ClaudeTokens/ClaudeTokens.csproj \
-  -c Release \
-  -r osx-arm64 \
-  --self-contained true \
-  -o publish/
+./publish.sh
 ```
 
-To start at login, add the published app to **System Settings → General → Login Items**.
+Then copy it to Applications:
+
+```bash
+cp -R "publish/Claude Tokens.app" /Applications/
+```
+
+Double-click to launch — the icon appears in your menu bar.
+
+To start at login, add it to **System Settings → General → Login Items**.
