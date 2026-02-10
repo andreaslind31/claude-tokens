@@ -9,22 +9,21 @@ namespace ClaudeTokens.Services;
 public class ApiUsageService : IDisposable
 {
     private readonly HttpClient _http = new();
-    private const string BaseUrl = "https://api.anthropic.com/v1/messages";
+    private const string CountTokensUrl = "https://api.anthropic.com/v1/messages/count_tokens";
 
     public async Task<UsageInfo?> GetUsageAsync(string apiKey)
     {
         try
         {
-            // Make a minimal API call to get rate limit headers.
-            // Use max_tokens=1 and a tiny prompt to minimize cost.
-            var request = new HttpRequestMessage(HttpMethod.Post, BaseUrl);
+            // Use the count_tokens endpoint — lightweight, no generation, zero cost.
+            // Rate limit headers are returned on all API responses.
+            var request = new HttpRequestMessage(HttpMethod.Post, CountTokensUrl);
             request.Headers.Add("x-api-key", apiKey);
             request.Headers.Add("anthropic-version", "2023-06-01");
             request.Content = new StringContent(
                 JsonSerializer.Serialize(new
                 {
                     model = "claude-haiku-4-5-20251001",
-                    max_tokens = 1,
                     messages = new[] { new { role = "user", content = "." } }
                 }),
                 Encoding.UTF8,
