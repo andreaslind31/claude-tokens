@@ -56,6 +56,9 @@ public partial class App : Application
             }
             catch { }
 
+            // Reassign menu on refresh so macOS redraws it
+            _viewModel.MenuChanged += menu => _trayIcon.Menu = menu;
+
             // Update icon with percentage when API data arrives
             _viewModel.PercentChanged += percent =>
             {

@@ -11,13 +11,15 @@ public class MenuBarViewModel : IDisposable
     private readonly FileWatcherService _watcherService;
     private readonly ApiUsageService _apiService;
     private readonly Action _quitAction;
-    private readonly NativeMenu _menu;
     private readonly string? _apiKey;
     private Timer? _apiPollTimer;
     private UsageInfo? _lastUsage;
+    private NativeMenu _currentMenu;
 
-    public NativeMenu Menu => _menu;
     public event Action<int>? PercentChanged;
+    public event Action<NativeMenu>? MenuChanged;
+
+    public NativeMenu Menu => _currentMenu;
 
     public MenuBarViewModel(
         TokenDataService tokenService,
@@ -32,7 +34,7 @@ public class MenuBarViewModel : IDisposable
         _apiService = apiService;
         _apiKey = apiKey;
         _quitAction = quitAction;
-        _menu = new NativeMenu();
+        _currentMenu = new NativeMenu();
 
         _watcherService.DataChanged += () => Dispatcher.UIThread.Post(Refresh);
         _watcherService.Start();
@@ -67,43 +69,45 @@ public class MenuBarViewModel : IDisposable
     public void Refresh()
     {
         var summary = _tokenService.LoadSummary();
-        RebuildMenu(summary);
+        var menu = BuildMenu(summary);
+        _currentMenu = menu;
+        MenuChanged?.Invoke(menu);
     }
 
-    private void RebuildMenu(TokenSummary summary)
+    private NativeMenu BuildMenu(TokenSummary summary)
     {
-        _menu.Items.Clear();
+        var menu = new NativeMenu();
 
         // Rate limit section (if API data available)
         if (_lastUsage != null)
         {
             var pct = (int)Math.Round(_lastUsage.RemainingPercent);
-            AddDisabledItem($"Remaining: {pct}%");
-            AddDisabledItem($"  {TokenDataService.FormatTokenCount(_lastUsage.TokensRemaining)} / {TokenDataService.FormatTokenCount(_lastUsage.TokensLimit)} tokens");
+            AddDisabledItemTo(menu, $"Remaining: {pct}%");
+            AddDisabledItemTo(menu, $"  {TokenDataService.FormatTokenCount(_lastUsage.TokensRemaining)} / {TokenDataService.FormatTokenCount(_lastUsage.TokensLimit)} tokens");
             if (_lastUsage.TokensReset > DateTime.MinValue)
             {
                 var resetIn = _lastUsage.TokensReset - DateTime.UtcNow;
                 if (resetIn.TotalSeconds > 0)
-                    AddDisabledItem($"  Resets in {FormatTimeSpan(resetIn)}");
+                    AddDisabledItemTo(menu, $"  Resets in {FormatTimeSpan(resetIn)}");
             }
-            AddSeparator();
+            menu.Items.Add(new NativeMenuItemSeparator());
         }
         else if (!string.IsNullOrWhiteSpace(_apiKey))
         {
-            AddDisabledItem("Remaining: loading...");
-            AddSeparator();
+            AddDisabledItemTo(menu, "Remaining: loading...");
+            menu.Items.Add(new NativeMenuItemSeparator());
         }
 
         // Today header
-        AddDisabledItem($"Today ({summary.DisplayDate})");
-        AddSeparator();
+        AddDisabledItemTo(menu, $"Today ({summary.DisplayDate})");
+        menu.Items.Add(new NativeMenuItemSeparator());
 
         // Today's stats
-        AddDisabledItem($"  Cost: ~${summary.TodayEstimatedCostUSD:F2}");
-        AddDisabledItem($"  Messages: {summary.TodayMessageCount:N0}");
-        AddDisabledItem($"  Sessions: {summary.TodaySessionCount}");
-        AddDisabledItem($"  Tool Calls: {summary.TodayToolCallCount:N0}");
-        AddSeparator();
+        AddDisabledItemTo(menu, $"  Cost: ~${summary.TodayEstimatedCostUSD:F2}");
+        AddDisabledItemTo(menu, $"  Messages: {summary.TodayMessageCount:N0}");
+        AddDisabledItemTo(menu, $"  Sessions: {summary.TodaySessionCount}");
+        AddDisabledItemTo(menu, $"  Tool Calls: {summary.TodayToolCallCount:N0}");
+        menu.Items.Add(new NativeMenuItemSeparator());
 
         // Models submenu
         if (summary.Models.Count > 0)
@@ -125,8 +129,8 @@ public class MenuBarViewModel : IDisposable
             }
 
             modelsItem.Menu = modelsMenu;
-            _menu.Items.Add(modelsItem);
-            AddSeparator();
+            menu.Items.Add(modelsItem);
+            menu.Items.Add(new NativeMenuItemSeparator());
         }
 
         // Projects submenu
@@ -141,16 +145,16 @@ public class MenuBarViewModel : IDisposable
             }
 
             projectsItem.Menu = projectsMenu;
-            _menu.Items.Add(projectsItem);
-            AddSeparator();
+            menu.Items.Add(projectsItem);
+            menu.Items.Add(new NativeMenuItemSeparator());
         }
 
         // All-time totals
-        AddDisabledItem("All Time");
-        AddDisabledItem($"  Cost: ~${summary.TotalEstimatedCostUSD:F2}");
-        AddDisabledItem($"  Messages: {summary.TotalMessages:N0}");
-        AddDisabledItem($"  Sessions: {summary.TotalSessions}");
-        AddSeparator();
+        AddDisabledItemTo(menu, "All Time");
+        AddDisabledItemTo(menu, $"  Cost: ~${summary.TotalEstimatedCostUSD:F2}");
+        AddDisabledItemTo(menu, $"  Messages: {summary.TotalMessages:N0}");
+        AddDisabledItemTo(menu, $"  Sessions: {summary.TotalSessions}");
+        menu.Items.Add(new NativeMenuItemSeparator());
 
         // Actions
         var refreshItem = new NativeMenuItem("Refresh");
@@ -160,11 +164,13 @@ public class MenuBarViewModel : IDisposable
             if (!string.IsNullOrWhiteSpace(_apiKey))
                 _ = PollApiAsync();
         };
-        _menu.Items.Add(refreshItem);
+        menu.Items.Add(refreshItem);
 
         var quitItem = new NativeMenuItem("Quit");
         quitItem.Click += (_, _) => _quitAction();
-        _menu.Items.Add(quitItem);
+        menu.Items.Add(quitItem);
+
+        return menu;
     }
 
     private static string FormatTimeSpan(TimeSpan ts)
@@ -176,19 +182,9 @@ public class MenuBarViewModel : IDisposable
         return $"{(int)ts.TotalSeconds}s";
     }
 
-    private void AddDisabledItem(string header)
-    {
-        AddDisabledItemTo(_menu, header);
-    }
-
     private static void AddDisabledItemTo(NativeMenu menu, string header)
     {
         menu.Items.Add(new NativeMenuItem(header) { IsEnabled = false });
-    }
-
-    private void AddSeparator()
-    {
-        _menu.Items.Add(new NativeMenuItemSeparator());
     }
 
     public void Dispose()

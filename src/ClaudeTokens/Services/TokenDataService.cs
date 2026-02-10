@@ -76,25 +76,21 @@ public class TokenDataService
 
         if (stats != null)
         {
+            // Always show today's actual date
+            summary.DisplayDate = DateTime.Now.ToString("MMM d");
+
             var todayStr = DateTime.Now.ToString("yyyy-MM-dd");
             var todayActivity = stats.DailyActivity.FirstOrDefault(d => d.Date == todayStr);
-            var latestActivity = stats.DailyActivity.LastOrDefault();
 
-            // Use today if available, otherwise latest
-            var displayActivity = todayActivity ?? latestActivity;
+            if (todayActivity != null)
+            {
+                summary.TodayMessageCount = todayActivity.MessageCount;
+                summary.TodaySessionCount = todayActivity.SessionCount;
+                summary.TodayToolCallCount = todayActivity.ToolCallCount;
+            }
+            // else: defaults to 0 for all counts
 
-            if (displayActivity != null)
-            {
-                var date = DateTime.Parse(displayActivity.Date);
-                summary.DisplayDate = date.ToString("MMM d");
-                summary.TodayMessageCount = displayActivity.MessageCount;
-                summary.TodaySessionCount = displayActivity.SessionCount;
-                summary.TodayToolCallCount = displayActivity.ToolCallCount;
-            }
-            else
-            {
-                summary.DisplayDate = DateTime.Now.ToString("MMM d");
-            }
+            var displayActivity = todayActivity ?? stats.DailyActivity.LastOrDefault();
 
             summary.TotalMessages = stats.TotalMessages;
             summary.TotalSessions = stats.TotalSessions;
