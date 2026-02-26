@@ -14,6 +14,7 @@ public class MenuBarViewModel : IDisposable
     private readonly string? _apiKey;
     private Timer? _apiPollTimer;
     private UsageInfo? _lastUsage;
+    private string? _apiError;
     private NativeMenu _currentMenu;
 
     public event Action<int>? PercentChanged;
@@ -53,16 +54,22 @@ public class MenuBarViewModel : IDisposable
     {
         if (string.IsNullOrWhiteSpace(_apiKey)) return;
 
-        var usage = await _apiService.GetUsageAsync(_apiKey);
+        var (usage, error) = await _apiService.GetUsageAsync(_apiKey);
         if (usage != null)
         {
             _lastUsage = usage;
+            _apiError = null;
             var percent = (int)Math.Round(usage.RemainingPercent);
             Dispatcher.UIThread.Post(() =>
             {
                 PercentChanged?.Invoke(percent);
                 Refresh();
             });
+        }
+        else if (error != null)
+        {
+            _apiError = error;
+            Dispatcher.UIThread.Post(Refresh);
         }
     }
 
@@ -94,7 +101,9 @@ public class MenuBarViewModel : IDisposable
         }
         else if (!string.IsNullOrWhiteSpace(_apiKey))
         {
-            AddDisabledItemTo(menu, "Remaining: loading...");
+            AddDisabledItemTo(menu, _apiError != null
+                ? $"Remaining: {_apiError}"
+                : "Remaining: loading...");
             menu.Items.Add(new NativeMenuItemSeparator());
         }
 

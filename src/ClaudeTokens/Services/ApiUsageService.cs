@@ -11,7 +11,7 @@ public class ApiUsageService : IDisposable
     private readonly HttpClient _http = new();
     private const string CountTokensUrl = "https://api.anthropic.com/v1/messages/count_tokens";
 
-    public async Task<UsageInfo?> GetUsageAsync(string apiKey)
+    public async Task<(UsageInfo? Usage, string? Error)> GetUsageAsync(string apiKey)
     {
         try
         {
@@ -31,11 +31,33 @@ public class ApiUsageService : IDisposable
             );
 
             var response = await _http.SendAsync(request);
-            return ParseRateLimitHeaders(response.Headers);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = (int)response.StatusCode switch
+                {
+                    401 => "API key invalid",
+                    403 => "API key forbidden",
+                    429 => "Rate limited",
+                    _ => $"API error ({(int)response.StatusCode})"
+                };
+                return (null, error);
+            }
+
+            var usage = ParseRateLimitHeaders(response.Headers);
+            return (usage, null);
+        }
+        catch (HttpRequestException)
+        {
+            return (null, "Network error");
+        }
+        catch (TaskCanceledException)
+        {
+            return (null, "Request timed out");
         }
         catch
         {
-            return null;
+            return (null, "Unknown error");
         }
     }
 
